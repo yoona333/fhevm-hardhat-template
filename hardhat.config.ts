@@ -23,9 +23,7 @@ const config: HardhatUserConfig = {
     deployer: 0,
   },
   etherscan: {
-    apiKey: {
-      sepolia: vars.get("ETHERSCAN_API_KEY", ""),
-    },
+    apiKey: vars.get("ETHERSCAN_API_KEY", ""),
   },
   gasReporter: {
     currency: "USD",
@@ -79,6 +77,7 @@ const config: HardhatUserConfig = {
         runs: 800,
       },
       evmVersion: "cancun",
+      viaIR: true,
     },
   },
   typechain: {

@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlindAuction Demo - 前端测试</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+
+        .status-bar {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .status-item strong {
+            color: #667eea;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+        }
+
+        .section h2 {
+            color: #495057;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #495057;
+            font-weight: 500;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: "Courier New", monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-success { color: #00ff00; }
+        .log-error { color: #ff0000; }
+        .log-info { color: #00bfff; }
+        .log-warning { color: #ffaa00; }
+
+        .warning-box {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .warning-box h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 BlindAuction Demo</h1>
+
+        <div class="warning-box">
+            <h3>⚠️ 使用前必读</h3>
+            <ul>
+                <li>确保已安装 MetaMask 钱包</li>
+                <li>确保已切换到 Sepolia 测试网</li>
+                <li>确保钱包有测试 ETH（至少 0.1 ETH）</li>
+                <li>点击「初始化」按钮连接钱包</li>
+            </ul>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <strong>钱包地址:</strong>
+                <span id="walletAddress">未连接</span>
+            </div>
+            <div class="status-item">
+                <strong>网络:</strong>
+                <span id="network">未知</span>
+            </div>
+            <div class="status-item">
+                <strong>ETH 余额:</strong>
+                <span id="ethBalance">0</span>
+            </div>
+            <div class="status-item">
+                <strong>SAT 代币余额:</strong>
+                <span id="tokenBalance">0</span>
+            </div>
+            <div class="status-item">
+                <strong>FHEVM 状态:</strong>
+                <span id="fhevmStatus">未初始化</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>0️⃣ 初始化</h2>
+            <button onclick="initializeApp()">🚀 连接钱包并初始化 FHEVM</button>
+        </div>
+
+        <div class="two-column">
+            <div class="section">
+                <h2>1️⃣ 购买代币</h2>
+                <div class="input-group">
+                    <label>ETH 数量:</label>
+                    <input type="number" id="buyEthAmount" placeholder="0.1" step="0.01" min="0">
+                </div>
+                <button onclick="buyTokens()">💰 购买代币</button>
+                <p style="margin-top: 10px; font-size: 12px; color: #666;">
+                    兑换比例: 1 ETH = 1,000,000 SAT
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>2️⃣ 授权合约</h2>
+                <p style="margin-bottom: 15px; font-size: 14px; color: #666;">
+                    出价前必须授权拍卖合约操作你的代币（只需一次）
+                </p>
+                <button onclick="approveAuction()">🔓 授权拍卖合约</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>3️⃣ 创建拍卖</h2>
+            <div class="input-group">
+                <label>元数据 CID:</label>
+                <input type="text" id="metadataCID" placeholder="QmYourCID">
+            </div>
+            <div class="input-group">
+                <label>拍卖时长（小时）:</label>
+                <input type="number" id="duration" value="24" min="1">
+            </div>
+            <button onclick="createAuction()">📝 创建拍卖（需 0.01 ETH）</button>
+        </div>
+
+        <div class="section">
+            <h2>4️⃣ 加密出价</h2>
+            <div class="input-group">
+                <label>拍卖 ID:</label>
+                <input type="number" id="bidAuctionId" value="0" min="0">
+            </div>
+            <div class="input-group">
+                <label>出价金额（代币数量）:</label>
+                <input type="number" id="bidAmount" placeholder="100000" min="0">
+            </div>
+            <button onclick="placeBid()">🔐 加密出价</button>
+        </div>
+
+        <div class="two-column">
+            <div class="section">
+                <h2>5️⃣ 领取结果</h2>
+                <div class="input-group">
+                    <label>拍卖 ID:</label>
+                    <input type="number" id="claimAuctionId" value="0" min="0">
+                </div>
+                <button onclick="claimAuction()">🎁 领取结果（需 0.05 ETH 押金）</button>
+            </div>
+
+            <div class="section">
+                <h2>6️⃣ 提取押金</h2>
+                <div class="input-group">
+                    <label>拍卖 ID:</label>
+                    <input type="number" id="withdrawAuctionId" value="0" min="0">
+                </div>
+                <button onclick="withdrawStake()">💰 提取押金</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📋 操作日志</h2>
+            <div class="log" id="log"></div>
+        </div>
+    </div>
+
+    <!-- CDN 引入 -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fhevmjs@0.6.0-1/dist/bundle.min.js"></script>
+
+    <script>
+        // 合约地址
+        const CONTRACTS = {
+            Token: "0x168ecd6465D5f6A479ef1cF7bc7B23748eD6e0c7",
+            Exchange: "0x420d4172D8153cB3fB76b21Ffd0b482F62112f7C",
+            Auction: "0xb77038085AA13334C57278CD66dD10Ac7F4171b9",
+        };
+
+        // 全局变量
+        let provider, signer, userAddress, fhevmInstance;
+
+        // 日志函数
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        // 初始化应用
+        async function initializeApp() {
+            try {
+                log("🚀 开始初始化...", "info");
+
+                // 检查 MetaMask
+                if (!window.ethereum) {
+                    alert("请安装 MetaMask 钱包!");
+                    return;
+                }
+
+                // 连接钱包
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                provider = new ethers.BrowserProvider(window.ethereum);
+                signer = await provider.getSigner();
+                userAddress = await signer.getAddress();
+
+                log(`✅ 钱包已连接: ${userAddress}`, "success");
+                document.getElementById('walletAddress').textContent =
+                    userAddress.substring(0, 6) + "..." + userAddress.substring(38);
+
+                // 检查网络
+                const network = await provider.getNetwork();
+                const chainId = Number(network.chainId);
+
+                if (chainId !== 11155111) {
+                    log("⚠️ 错误的网络，正在切换到 Sepolia...", "warning");
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0xaa36a7' }],
+                    });
+                }
+
+                document.getElementById('network').textContent = "Sepolia";
+                log("✅ 网络: Sepolia", "success");
+
+                // 初始化 FHEVM
+                log("🔧 初始化 FHEVM...", "info");
+                fhevmInstance = await fhevm.createInstance({
+                    chainId: 11155111,
+                    networkUrl: "https://sepolia.infura.io/v3/5e6d0def89ec47b1a2f9dfd91fc38ba6",
+                    gatewayUrl: "https://gateway.sepolia.zama.ai",
+                });
+
+                document.getElementById('fhevmStatus').textContent = "已初始化 ✅";
+                log("✅ FHEVM 初始化成功", "success");
+
+                // 更新余额
+                await updateBalances();
+
+                log("🎉 初始化完成！可以开始使用了", "success");
+            } catch (error) {
+                log(`❌ 初始化失败: ${error.message}`, "error");
+            }
+        }
+
+        // 更新余额
+        async function updateBalances() {
+            try {
+                // ETH 余额
+                const ethBalance = await provider.getBalance(userAddress);
+                document.getElementById('ethBalance').textContent =
+                    parseFloat(ethers.formatEther(ethBalance)).toFixed(4) + " ETH";
+
+                // 代币余额（暂时显示 0，解密比较复杂）
+                document.getElementById('tokenBalance').textContent = "查看合约";
+            } catch (error) {
+                log(`❌ 更新余额失败: ${error.message}`, "error");
+            }
+        }
+
+        // 购买代币
+        async function buyTokens() {
+            try {
+                const ethAmount = document.getElementById('buyEthAmount').value;
+                if (!ethAmount || parseFloat(ethAmount) <= 0) {
+                    alert("请输入有效的 ETH 数量");
+                    return;
+                }
+
+                log(`🛒 购买代币: ${ethAmount} ETH`, "info");
+
+                const exchangeABI = ["function buyTokens() payable"];
+                const exchange = new ethers.Contract(CONTRACTS.Exchange, exchangeABI, signer);
+
+                const tx = await exchange.buyTokens({
+                    value: ethers.parseEther(ethAmount)
+                });
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                const tokensReceived = parseFloat(ethAmount) * 1000000;
+                log(`✅ 购买成功！获得 ${tokensReceived} 代币`, "success");
+
+                await updateBalances();
+            } catch (error) {
+                log(`❌ 购买失败: ${error.message}`, "error");
+            }
+        }
+
+        // 授权拍卖合约
+        async function approveAuction() {
+            try {
+                log("🔓 授权拍卖合约...", "info");
+
+                const tokenABI = ["function setOperator(address operator, uint256 expiry)"];
+                const token = new ethers.Contract(CONTRACTS.Token, tokenABI, signer);
+
+                const oneYear = Math.floor(Date.now() / 1000) + 365 * 86400;
+                const tx = await token.setOperator(CONTRACTS.Auction, oneYear);
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                log("✅ 授权成功！现在可以出价了", "success");
+            } catch (error) {
+                log(`❌ 授权失败: ${error.message}`, "error");
+            }
+        }
+
+        // 创建拍卖
+        async function createAuction() {
+            try {
+                const metadataCID = document.getElementById('metadataCID').value;
+                const duration = document.getElementById('duration').value;
+
+                if (!metadataCID) {
+                    alert("请输入元数据 CID");
+                    return;
+                }
+
+                log("📝 创建拍卖...", "info");
+
+                const now = Math.floor(Date.now() / 1000);
+                const startTime = now + 300; // 5分钟后
+                const endTime = startTime + parseInt(duration) * 3600;
+
+                const auctionABI = [
+                    "function createAuction(string metadataCID, uint256 startTime, uint256 endTime) payable"
+                ];
+                const auction = new ethers.Contract(CONTRACTS.Auction, auctionABI, signer);
+
+                const tx = await auction.createAuction(metadataCID, startTime, endTime, {
+                    value: ethers.parseEther("0.01")
+                });
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                log("✅ 拍卖创建成功！", "success");
+                await updateBalances();
+            } catch (error) {
+                log(`❌ 创建失败: ${error.message}`, "error");
+            }
+        }
+
+        // 加密出价
+        async function placeBid() {
+            try {
+                const auctionId = document.getElementById('bidAuctionId').value;
+                const bidAmount = document.getElementById('bidAmount').value;
+
+                if (!bidAmount || parseInt(bidAmount) <= 0) {
+                    alert("请输入有效的出价金额");
+                    return;
+                }
+
+                if (!fhevmInstance) {
+                    alert("FHEVM 未初始化，请先点击「初始化」按钮");
+                    return;
+                }
+
+                log(`🔐 加密出价金额: ${bidAmount}`, "info");
+
+                // 加密
+                const amount = BigInt(bidAmount);
+                const input = fhevmInstance.createEncryptedInput(CONTRACTS.Auction, userAddress);
+                input.add64(amount);
+                const encrypted = await input.encrypt();
+
+                log("✅ 加密完成，提交出价...", "info");
+
+                // 提交
+                const auctionABI = [
+                    "function bid(uint256 auctionId, bytes encryptedAmount, bytes inputProof)"
+                ];
+                const auction = new ethers.Contract(CONTRACTS.Auction, auctionABI, signer);
+
+                const tx = await auction.bid(
+                    auctionId,
+                    encrypted.handles[0],
+                    encrypted.inputProof
+                );
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                log("✅ 出价成功！金额已加密", "success");
+            } catch (error) {
+                log(`❌ 出价失败: ${error.message}`, "error");
+            }
+        }
+
+        // 领取结果
+        async function claimAuction() {
+            try {
+                const auctionId = document.getElementById('claimAuctionId').value;
+
+                log("🎁 领取拍卖结果...", "info");
+
+                const auctionABI = ["function claim(uint256 auctionId) payable"];
+                const auction = new ethers.Contract(CONTRACTS.Auction, auctionABI, signer);
+
+                const tx = await auction.claim(auctionId, {
+                    value: ethers.parseEther("0.05")
+                });
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                log("✅ 领取成功！押金可通过「提取押金」取回", "success");
+                await updateBalances();
+            } catch (error) {
+                log(`❌ 领取失败: ${error.message}`, "error");
+            }
+        }
+
+        // 提取押金
+        async function withdrawStake() {
+            try {
+                const auctionId = document.getElementById('withdrawAuctionId').value;
+
+                log("💰 提取押金...", "info");
+
+                const auctionABI = ["function withdrawStake(uint256 auctionId)"];
+                const auction = new ethers.Contract(CONTRACTS.Auction, auctionABI, signer);
+
+                const tx = await auction.withdrawStake(auctionId);
+
+                log(`📤 交易已发送: ${tx.hash}`, "info");
+                await tx.wait();
+
+                log("✅ 押金已退还（0.05 ETH）", "success");
+                await updateBalances();
+            } catch (error) {
+                log(`❌ 提取失败: ${error.message}`, "error");
+            }
+        }
+
+        // 页面加载完成提示
+        window.addEventListener('load', () => {
+            log("👋 欢迎使用 BlindAuction Demo！请点击「初始化」开始", "info");
+        });
+    </script>
+</body>
+</html>

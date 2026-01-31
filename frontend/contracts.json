@@ -1,0 +1,38 @@
+{
+  "network": {
+    "name": "Sepolia",
+    "chainId": 11155111,
+    "chainIdHex": "0xaa36a7",
+    "rpcUrl": "https://sepolia.infura.io/v3/YOUR_INFURA_KEY",
+    "explorerUrl": "https://sepolia.etherscan.io",
+    "fhevmGateway": "https://gateway.sepolia.zama.ai"
+  },
+  "contracts": {
+    "MySecretToken": {
+      "address": "0x168ecd6465D5f6A479ef1cF7bc7B23748eD6e0c7",
+      "name": "Secret Auction Token",
+      "symbol": "SAT",
+      "decimals": 6,
+      "explorerUrl": "https://sepolia.etherscan.io/address/0x168ecd6465D5f6A479ef1cF7bc7B23748eD6e0c7#code"
+    },
+    "TokenExchange": {
+      "address": "0x420d4172D8153cB3fB76b21Ffd0b482F62112f7C",
+      "exchangeRate": 1000000,
+      "explorerUrl": "https://sepolia.etherscan.io/address/0x420d4172D8153cB3fB76b21Ffd0b482F62112f7C#code"
+    },
+    "BlindAuction": {
+      "address": "0xb77038085AA13334C57278CD66dD10Ac7F4171b9",
+      "listingFee": "0.01",
+      "successFee": "0.05",
+      "explorerUrl": "https://sepolia.etherscan.io/address/0xb77038085AA13334C57278CD66dD10Ac7F4171b9#code"
+    }
+  },
+  "owner": {
+    "address": "0xc7b0D4dc5184b95Dda276b475dF59C3686d3E724"
+  },
+  "deployment": {
+    "date": "2026-01-29",
+    "timestamp": 1738145760,
+    "verified": true
+  }
+}
