@@ -67,16 +67,68 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`   📊 上架费: 0.01 ETH`);
   console.log(`   📊 押金: 0.05 ETH (可退还)\n`);
 
-  // ============ 第四步：转移代币所有权 ============
-  console.log("4️⃣ 配置合约权限...");
+  // ============ 第四步：给测试账户铸造代币（在转移所有权之前）============
+  console.log("4️⃣ 给测试账户铸造 SAT 代币（仅限本地测试）...");
 
   const MySecretToken = await hre.ethers.getContractAt("MySecretToken", token.address);
 
-  console.log(`   🔄 将 MySecretToken 所有权转移给 TokenExchange...`);
-  const tx = await MySecretToken.transferOwnership(exchange.address);
-  await tx.wait();
+  // 检查是否是本地网络
+  const network = hre.network.name;
+  if (network === "hardhat" || network === "localhost") {
+    const accounts = await hre.ethers.getSigners();
 
-  console.log(`   ✅ 所有权转移成功\n`);
+    // 准备接收者地址数组（账户 0-9）
+    const recipients: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      recipients.push(accounts[i].address);
+    }
+
+    // 每人铸造 100,000,000 SAT (相当于 100 ETH 价值)
+    const mintAmount = 100_000_000;
+
+    console.log(`   💰 批量铸造: 10 个账户，每人 ${mintAmount.toLocaleString()} SAT`);
+
+    // 设置 deployer 为 minter
+    console.log(`   🔄 设置 deployer 为 minter...`);
+    const tx1 = await MySecretToken.setMinter(deployer);
+    await tx1.wait();
+
+    // 批量铸造代币
+    console.log(`   ⚙️ 批量铸造代币...`);
+    const tx2 = await MySecretToken.mintBatch(recipients, mintAmount);
+    await tx2.wait();
+
+    console.log(`   ✅ 所有测试账户代币铸造完成\n`);
+  }
+
+  // ============ 第五步：配置合约权限 ============
+  console.log("5️⃣ 配置合约权限...");
+
+  // 🔥 关键修复：设置 TokenExchange 为 minter（允许它铸造代币）
+  // 这样用户可以通过 TokenExchange.buyTokens() 购买 SAT 代币
+  console.log(`   🔄 设置 TokenExchange 为 MySecretToken 的 minter...`);
+  const txMinter = await MySecretToken.setMinter(exchange.address);
+  await txMinter.wait();
+  console.log(`   ✅ TokenExchange 已设置为 minter（现在可以铸造代币）\n`);
+
+  // 注意：保留 owner 权限，因为需要 owner 来管理 minter
+  // 如果需要，可以单独转移所有权
+  // console.log(`   🔄 将 MySecretToken 所有权转移给 TokenExchange...`);
+  // const txOwner = await MySecretToken.transferOwnership(exchange.address);
+  // await txOwner.wait();
+  // console.log(`   ✅ 所有权转移成功\n`);
+
+  if (network === "hardhat" || network === "localhost") {
+    // 验证余额（可选，加密余额无法直接查看）
+    console.log("   📊 账户列表:");
+    const accounts = await hre.ethers.getSigners();
+    for (let i = 0; i < 3; i++) {
+      console.log(`      账户 ${i}: ${accounts[i].address.slice(0, 10)}...`);
+    }
+    console.log(`      ... 共 10 个账户\n`);
+  }
+
+  // ============ 第六步：部署总结 ============
 
   // ============ 部署总结 ============
   console.log("=".repeat(80));

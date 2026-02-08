@@ -18,7 +18,7 @@ const MNEMONIC: string = vars.get("MNEMONIC", "test test test test test test tes
 const INFURA_API_KEY: string = vars.get("INFURA_API_KEY", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
 
 const config: HardhatUserConfig = {
-  defaultNetwork: "hardhat",
+  defaultNetwork: "sepolia", // 默认使用 Sepolia 测试网
   namedAccounts: {
     deployer: 0,
   },
@@ -36,6 +36,18 @@ const config: HardhatUserConfig = {
         mnemonic: MNEMONIC,
       },
       chainId: 31337,
+      blockGasLimit: 30000000,
+    },
+    localhost: {
+      accounts: {
+        mnemonic: MNEMONIC,
+        path: "m/44'/60'/0'/0/",
+        count: 10,
+      },
+      chainId: 31337,
+      url: "http://127.0.0.1:8545",
+      gas: "auto",
+      gasPrice: "auto",
     },
     anvil: {
       accounts: {
