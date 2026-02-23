@@ -429,8 +429,9 @@ contract BlindAuction is ZamaEthereumConfig, ReentrancyGuard {
         FHE.allowThis(currentBid);
         FHE.allow(currentBid, msg.sender);
 
-        // 🔥🔥🔥 关键改进：每次出价时就更新最高价和获胜者
-        if (!FHE.isInitialized(auction.highestBid)) {
+        // 每次出价时更新最高价和获胜者
+        // 用 currentWinner == address(0) 判断第一个出价者，比 FHE.isInitialized 更可靠
+        if (auction.currentWinner == address(0)) {
             // 第一个出价者自动成为当前获胜者
             auction.highestBid = currentBid;
             auction.currentWinner = msg.sender;
