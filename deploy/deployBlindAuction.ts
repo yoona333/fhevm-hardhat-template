@@ -54,16 +54,22 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`   📊 兑换比例: 1 ETH = 1,000,000 SAT\n`);
 
   // ============ 第三步：部署 BlindAuction ============
-  console.log("3️⃣ 部署 BlindAuction (主拍卖合约)...");
+  console.log("3️⃣ 部署 BlindAuction (NFT 拍卖合约)...");
 
   const auction = await deploy("BlindAuction", {
     from: deployer,
-    args: [token.address],
+    args: [
+      token.address,
+      "BlindAuction NFT", // NFT 名称
+      "BAFT",             // NFT 符号
+      2                   // 出价手续费比例（2%），可按需调整
+    ],
     log: true,
     waitConfirmations: 1,
   });
 
   console.log(`   ✅ BlindAuction 部署成功: ${auction.address}`);
+  console.log(`   📊 NFT 名称: BlindAuction NFT (BANFT)`);
   console.log(`   📊 上架费: 0.01 ETH`);
   console.log(`   📊 押金: 0.05 ETH (可退还)\n`);
 

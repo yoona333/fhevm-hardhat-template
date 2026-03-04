@@ -18,7 +18,7 @@ const MNEMONIC: string = vars.get("MNEMONIC", "test test test test test test tes
 const INFURA_API_KEY: string = vars.get("INFURA_API_KEY", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz");
 
 const config: HardhatUserConfig = {
-  defaultNetwork: "sepolia", // 默认使用 Sepolia 测试网
+  defaultNetwork: "hardhat", // 默认使用 Hardhat 本地网络（可通过 --network 参数覆盖）
   namedAccounts: {
     deployer: 0,
   },
