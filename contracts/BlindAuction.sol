@@ -17,7 +17,8 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
  *   1. createAuction() — 卖家创建拍卖，铸造 NFT，支付上架费
  *   2. bid()           — 买家出价，2% 手续费直接给 owner，98% 存入合约作为竞拍金
  *                        每次出价后实时更新加密 winner（严格大于才替换）
- *   3. resolveWinner() — 拍卖结束后提交 KMS 解密证明，写入明文 winner 地址
+ *   3. requestWinnerDecryption() — 拍卖结束后，标记 encryptedWinner 可公开解密
+ *   4. resolveWinner()          — 提交 KMS 解密证明（checkSignatures 验证），写入明文 winner
  *   4. withdraw()      — 非 winner 取回自己的 98% 竞拍金
  *   5. claimNFT()      — winner 领取 NFT，合约将其 98% 竞拍金转给卖家
  */
@@ -77,7 +78,6 @@ contract BlindAuction is ERC721URIStorage, ERC721Enumerable, IERC721Receiver, Za
 
     event AuctionCreated(uint256 indexed auctionId, address indexed beneficiary, string metadataCID, uint256 startTime, uint256 endTime);
     event BidPlaced(uint256 indexed auctionId, address indexed bidder);
-    event WinnerDecryptionRequested(uint256 indexed auctionId, eaddress encryptedWinnerHandle);
     event WinnerResolved(uint256 indexed auctionId, address indexed winner);
     event BidWithdrawn(uint256 indexed auctionId, address indexed bidder);
     event NFTClaimed(uint256 indexed auctionId, address indexed winner, uint256 tokenId);
@@ -272,7 +272,7 @@ contract BlindAuction is ERC721URIStorage, ERC721Enumerable, IERC721Receiver, Za
 
     /**
      * @notice 第一步：拍卖结束后，任何人调用此函数，将 encryptedWinner 标记为可公开解密
-     * @dev 调用后前端/测试可通过 KMS 公开解密获得明文 winner 地址，再调用 submitWinner
+     * @dev 调用后，KMS/relayer 可对该句柄进行公开解密，返回明文地址、abiEncodedClearValues 和 decryptionProof
      */
     function requestWinnerDecryption(
         uint256 auctionId
@@ -280,20 +280,40 @@ contract BlindAuction is ERC721URIStorage, ERC721Enumerable, IERC721Receiver, Za
         require(auctionWinner[auctionId] == address(0), "Already resolved");
         require(FHE.isInitialized(encryptedWinner[auctionId]), "No bids placed");
         FHE.makePubliclyDecryptable(encryptedWinner[auctionId]);
-        emit WinnerDecryptionRequested(auctionId, encryptedWinner[auctionId]);
     }
 
     /**
-     * @notice 第二步：链下解密后，将明文 winner 地址提交上链
-     * @dev winner 必须是真实出价者（链上可验证），防止伪造
+     * @notice 第二步：提交 KMS 公开解密证明，将明文 winner 地址写入合约
+     *
+     * 前端/测试流程：
+     *   1. 调用 requestWinnerDecryption —— 合约执行 makePubliclyDecryptable
+     *   2. 通过 KMS/relayer publicDecrypt 解密，得到：
+     *      - winner（明文地址）
+     *      - abiEncodedClearValues
+     *      - decryptionProof
+     *   3. 调用 resolveWinner 提交证明，合约验证 KMS 签名后写入 winner
+     *
+     * @param auctionId             拍卖 ID
+     * @param winner                KMS 解密得到的明文 winner 地址
+     * @param abiEncodedClearValues KMS 返回的 ABI 编码解密值
+     * @param decryptionProof       KMS 签名证明
      */
-    function submitWinner(
+    function resolveWinner(
         uint256 auctionId,
-        address winner
+        address winner,
+        bytes calldata abiEncodedClearValues,
+        bytes calldata decryptionProof
     ) external auctionExists(auctionId) onlyAfterEnd(auctionId) {
-        require(auctionWinner[auctionId] == address(0),            "Already resolved");
-        require(winner != address(0),                              "Invalid winner");
-        require(FHE.isInitialized(auctionBids[auctionId][winner]), "Winner has no bid");
+        require(auctionWinner[auctionId] == address(0), "Already resolved");
+        require(winner != address(0),                   "Invalid winner");
+        require(FHE.isInitialized(encryptedWinner[auctionId]), "No bids placed");
+
+        // 构造 handlesList，用于 KMS 签名验证
+        bytes32[] memory handlesList = new bytes32[](1);
+        handlesList[0] = eaddress.unwrap(encryptedWinner[auctionId]);
+
+        // 验证 KMS 签名：确保 winner 地址来自真实的 KMS 解密，防止任何人伪造
+        FHE.checkSignatures(handlesList, abiEncodedClearValues, decryptionProof);
 
         auctionWinner[auctionId] = winner;
         emit WinnerResolved(auctionId, winner);

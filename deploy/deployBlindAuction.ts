@@ -159,7 +159,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n   3. Owner 可以提取手续费:");
   console.log("      - BlindAuction.withdrawFees()");
 
-  console.log("\n=".repeat(80) + "\n");
+  console.log("=".repeat(80) + "\n");
 };
 
 export default func;

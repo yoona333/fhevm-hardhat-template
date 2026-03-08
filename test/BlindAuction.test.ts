@@ -2,17 +2,18 @@
  * BlindAuction 测试套件
  *
  * 合约流程：
- *   createAuction → bid → requestWinnerDecryption → (链下公开解密) → submitWinner
+ *   createAuction → bid → resolveWinner（含 KMS 解密证明）
  *   → withdraw（非winner）/ claimNFT（winner）
  *
  * 测试说明：
  *   - 使用 fhevm.createEncryptedInput 加密出价
- *   - 使用 fhevm.publicDecryptEaddress 解密加密的 winner 地址（需先调用 requestWinnerDecryption）
+ *   - 使用 fhevm.publicDecrypt 解密 winner 地址并获取 KMS 证明，传给合约 resolveWinner 验证
  *   - 测试环境为 FHEVM mock 模式（本地 hardhat 网络）
  */
 
 import { expect } from "chai";
 import { ethers, fhevm } from "hardhat";
+import { FhevmType } from "@fhevm/hardhat-plugin";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import type { BlindAuction, MySecretToken, TokenExchange } from "../types";
@@ -57,6 +58,10 @@ async function deployAll() {
     await exchange.connect(bidder).buyTokens({ value: ethers.parseEther("100") });
     await token.connect(bidder).setOperator(auctionAddress, farFuture);
   }
+  // 给 seller 也铸造一点代币（初始化余额句柄，用于后续解密）
+  await exchange.connect(seller).buyTokens({ value: ethers.parseEther("1") });
+  // admin 购买少量代币初始化余额句柄（用于验证手续费收入）
+  await exchange.connect(admin).buyTokens({ value: ethers.parseEther("1") });
 
   return { auction, token, exchange, admin, seller, bidder1, bidder2, bidder3, auctionAddress, tokenAddress };
 }
@@ -105,27 +110,36 @@ async function placeBid(
 }
 
 /**
- * 完整的 winner 解析流程：
- *   1. requestWinnerDecryption —— 标记 encryptedWinner 为可公开解密
- *   2. fhevm.publicDecryptEaddress —— 链下解密获取明文地址
- *   3. submitWinner —— 将明文地址写入合约
+ * 完整的 winner 解析流程（两步）：
+ *   1. requestWinnerDecryption —— 让合约执行 makePubliclyDecryptable（标记句柄可公开解密）
+ *   2. fhevm.publicDecrypt() —— 获取明文地址、abiEncodedClearValues、decryptionProof
+ *   3. resolveWinner —— 提交 KMS 证明，合约用 checkSignatures 验证后写入 winner
  */
 async function resolveWinner(
   auction: BlindAuction,
   caller: HardhatEthersSigner,
   auctionId: bigint,
 ) {
-  const auctionAddress = await auction.getAddress();
-
-  // Step 1: 触发公开解密标记
+  // Step 1: 标记句柄为可公开解密
   await auction.connect(caller).requestWinnerDecryption(auctionId);
 
-  // Step 2: 读取加密 winner 句柄，链下解密
+  // Step 2: 读取加密 winner 句柄，链下解密获取完整证明
   const encHandle = await auction.getEncryptedWinner(auctionId);
-  const winnerAddress = await fhevm.publicDecryptEaddress(encHandle as string);
+  const handleBytes32 = encHandle as string;
 
-  // Step 3: 提交明文 winner 地址
-  await auction.connect(caller).submitWinner(auctionId, winnerAddress);
+  const decryptResult = await fhevm.publicDecrypt([handleBytes32]);
+
+  const winnerAddress         = decryptResult.clearValues[handleBytes32] as string;
+  const abiEncodedClearValues = decryptResult.abiEncodedClearValues;
+  const decryptionProof       = decryptResult.decryptionProof;
+
+  // Step 3: 提交到链上，合约用 checkSignatures 验证 KMS 签名
+  await auction.connect(caller).resolveWinner(
+    auctionId,
+    winnerAddress,
+    abiEncodedClearValues,
+    decryptionProof,
+  );
 
   return winnerAddress;
 }
@@ -310,7 +324,7 @@ describe("BlindAuction", function () {
 
   });
 
-  // ── 4. requestWinnerDecryption & submitWinner ──────────────────────────────
+  // ── 4. resolveWinner ──────────────────────────────────────────────────────
 
   describe("4. 解析 winner", function () {
 
@@ -351,7 +365,7 @@ describe("BlindAuction", function () {
       expect(winner.toLowerCase()).to.equal(bidder1.address.toLowerCase());
     });
 
-    it("4.4 拍卖期间调用 requestWinnerDecryption 失败", async function () {
+    it("4.4 拍卖期间调用 resolveWinner 失败", async function () {
       const { auction, seller, bidder1 } = await deployAll();
       const { auctionId } = await createAuction(auction, seller);
       await placeBid(auction, bidder1, auctionId, 1000n);
@@ -361,7 +375,7 @@ describe("BlindAuction", function () {
       ).to.be.reverted;
     });
 
-    it("4.5 重复 submitWinner 失败", async function () {
+    it("4.5 重复 resolveWinner 失败", async function () {
       const { auction, seller, bidder1 } = await deployAll();
       const { auctionId, endTime } = await createAuction(auction, seller);
       await placeBid(auction, bidder1, auctionId, 1000n);
@@ -369,24 +383,13 @@ describe("BlindAuction", function () {
 
       await resolveWinner(auction, bidder1, auctionId);
 
+      // 第二次调用时，合约已写入 winner，应 revert
       await expect(
-        auction.connect(bidder1).submitWinner(auctionId, bidder1.address),
+        auction.connect(bidder1).requestWinnerDecryption(auctionId),
       ).to.be.revertedWith("Already resolved");
     });
 
-    it("4.6 winner 地址没有出价记录时 submitWinner 失败", async function () {
-      const { auction, seller, bidder1, bidder2 } = await deployAll();
-      const { auctionId, endTime } = await createAuction(auction, seller);
-      await placeBid(auction, bidder1, auctionId, 1000n);
-      await time.increaseTo(endTime + 1);
-      await auction.connect(bidder1).requestWinnerDecryption(auctionId);
-
-      await expect(
-        auction.connect(bidder1).submitWinner(auctionId, bidder2.address),
-      ).to.be.revertedWith("Winner has no bid");
-    });
-
-    it("4.7 无出价时 requestWinnerDecryption 失败", async function () {
+    it("4.6 无出价时 resolveWinner 失败", async function () {
       const { auction, seller, bidder1 } = await deployAll();
       const { auctionId, endTime } = await createAuction(auction, seller);
       await time.increaseTo(endTime + 1);
@@ -703,6 +706,189 @@ describe("BlindAuction", function () {
 
       const after = await ethers.provider.getBalance(admin.address);
       expect(after - before).to.equal(LISTING_FEE * 2n);
+    });
+
+  });
+
+  // ── 9. 加解密代币余额验证（核心 FHE 功能）────────────────────────────────
+
+  describe("9. 加解密代币余额验证", function () {
+
+    /**
+     * 辅助：解密某账户的 SAT 余额（userDecrypt，需要本人 signer）
+     * 若余额句柄未初始化（账户从未持有代币），返回 0n
+     */
+    async function getBalance(token: MySecretToken, user: HardhatEthersSigner): Promise<bigint> {
+      const tokenAddress = await token.getAddress();
+      const handle = await token.confidentialBalanceOf(user.address);
+      if (handle === ethers.ZeroHash) return 0n;
+      return fhevm.userDecryptEuint(FhevmType.euint64, handle as string, tokenAddress, user);
+    }
+
+    it("9.1 出价后手续费正确扣除：owner 收到 2%，合约收到 98%", async function () {
+      const { auction, token, seller, bidder1, admin, auctionAddress } = await deployAll();
+      const { auctionId } = await createAuction(auction, seller);
+
+      // 记录出价前 bidder1 和 owner 的余额
+      const bidder1Before = await getBalance(token, bidder1);
+      const ownerBefore   = await getBalance(token, admin);
+
+      const bidAmount = 1000n;
+      await placeBid(auction, bidder1, auctionId, bidAmount);
+
+      // 出价后余额
+      const bidder1After = await getBalance(token, bidder1);
+      const ownerAfter   = await getBalance(token, admin);
+
+      const fee        = (bidAmount * 2n) / 100n;      // 2% = 20
+      const netBid     = bidAmount - fee;               // 98% = 980
+
+      // bidder1 总共少了 bidAmount（fee + netBid）
+      expect(bidder1Before - bidder1After).to.equal(bidAmount);
+      // owner 多了 fee
+      expect(ownerAfter - ownerBefore).to.equal(fee);
+      // 合约持有 netBid（通过加密出价句柄间接验证）
+      const encBid = await auction.getEncryptedBid(auctionId, bidder1.address);
+      expect(encBid).to.not.equal(ethers.ZeroHash);
+    });
+
+    it("9.2 解密合约持有的加密出价金额正确", async function () {
+      const { auction, token, seller, bidder1, auctionAddress } = await deployAll();
+      const { auctionId } = await createAuction(auction, seller);
+
+      const bidAmount = 1000n;
+      await placeBid(auction, bidder1, auctionId, bidAmount);
+
+      // bidder1 可以解密自己的加密出价句柄（合约已 FHE.allow(myBid, msg.sender)）
+      const encBidHandle = await auction.getEncryptedBid(auctionId, bidder1.address);
+      const tokenAddress = await token.getAddress();
+
+      // 使用 userDecryptEuint 解密（需要出价者本人 signer）
+      const decryptedBid = await fhevm.userDecryptEuint(
+        FhevmType.euint64,
+        encBidHandle as string,
+        auctionAddress,
+        bidder1,
+      );
+
+      const expectedNetBid = bidAmount - (bidAmount * 2n) / 100n; // 98% = 980
+      expect(decryptedBid).to.equal(expectedNetBid);
+    });
+
+    it("9.3 withdraw 后非 winner 余额恢复", async function () {
+      const { auction, token, seller, bidder1, bidder2 } = await deployAll();
+      const { auctionId, endTime } = await createAuction(auction, seller);
+
+      const bidAmount = 1000n;
+      const fee    = (bidAmount * 2n) / 100n;
+      const netBid = bidAmount - fee;
+
+      // 记录出价前余额
+      const before = await getBalance(token, bidder1);
+
+      await placeBid(auction, bidder1, auctionId, bidAmount);
+      await placeBid(auction, bidder2, auctionId, 2000n); // bidder2 出更高价成为 winner
+
+      // 出价后余额减少了 bidAmount
+      const afterBid = await getBalance(token, bidder1);
+      expect(before - afterBid).to.equal(bidAmount);
+
+      await time.increaseTo(endTime + 1);
+      await resolveWinner(auction, bidder1, auctionId);
+
+      // withdraw 取回 98% 竞拍金
+      await auction.connect(bidder1).withdraw(auctionId);
+
+      const afterWithdraw = await getBalance(token, bidder1);
+      // 净损失只有手续费 2%
+      expect(before - afterWithdraw).to.equal(fee);
+    });
+
+    it("9.4 claimNFT 后卖家收到 winner 的竞拍金", async function () {
+      const { auction, token, seller, bidder1 } = await deployAll();
+      const { auctionId, endTime } = await createAuction(auction, seller);
+
+      const bidAmount = 1000n;
+      const fee    = (bidAmount * 2n) / 100n;
+      const netBid = bidAmount - fee;
+
+      const sellerBefore = await getBalance(token, seller);
+
+      await placeBid(auction, bidder1, auctionId, bidAmount);
+      await time.increaseTo(endTime + 1);
+      await resolveWinner(auction, bidder1, auctionId);
+      await auction.connect(bidder1).claimNFT(auctionId);
+
+      const sellerAfter = await getBalance(token, seller);
+      // 卖家收到 winner 的 98% 竞拍金
+      expect(sellerAfter - sellerBefore).to.equal(netBid);
+    });
+
+    it("9.5 多次追加出价后累计金额正确", async function () {
+      const { auction, token, seller, bidder1, auctionAddress } = await deployAll();
+      const { auctionId } = await createAuction(auction, seller);
+
+      // 两次出价，每次 500
+      await placeBid(auction, bidder1, auctionId, 500n);
+      await placeBid(auction, bidder1, auctionId, 500n);
+
+      // 合计出价 1000，扣 2% 手续费后净竞拍金 = 980
+      const encBidHandle = await auction.getEncryptedBid(auctionId, bidder1.address);
+      const decryptedBid = await fhevm.userDecryptEuint(
+        FhevmType.euint64,
+        encBidHandle as string,
+        auctionAddress,
+        bidder1,
+      );
+
+      // 每次 500 的 98% = 490，两次累计 = 980
+      const expectedNet = (500n - (500n * 2n) / 100n) + (500n - (500n * 2n) / 100n);
+      expect(decryptedBid).to.equal(expectedNet);
+    });
+
+    it("9.6 三人竞拍：winner 付款给卖家，其余人取回各自竞拍金", async function () {
+      const { auction, token, seller, bidder1, bidder2, bidder3 } = await deployAll();
+      const { auctionId, endTime } = await createAuction(auction, seller);
+
+      const amounts = { bidder1: 1000n, bidder2: 3000n, bidder3: 2000n };
+
+      const b1Before = await getBalance(token, bidder1);
+      const b2Before = await getBalance(token, bidder2);
+      const b3Before = await getBalance(token, bidder3);
+      const sellerBefore = await getBalance(token, seller);
+
+      await placeBid(auction, bidder1, auctionId, amounts.bidder1);
+      await placeBid(auction, bidder2, auctionId, amounts.bidder2); // 最高价
+      await placeBid(auction, bidder3, auctionId, amounts.bidder3);
+
+      await time.increaseTo(endTime + 1);
+      const winner = await resolveWinner(auction, bidder1, auctionId);
+      expect(winner.toLowerCase()).to.equal(bidder2.address.toLowerCase());
+
+      // bidder2（winner）领取 NFT
+      await auction.connect(bidder2).claimNFT(auctionId);
+      // bidder1、bidder3 取回竞拍金
+      await auction.connect(bidder1).withdraw(auctionId);
+      await auction.connect(bidder3).withdraw(auctionId);
+
+      const fee1    = (amounts.bidder1 * 2n) / 100n;
+      const fee2    = (amounts.bidder2 * 2n) / 100n;
+      const fee3    = (amounts.bidder3 * 2n) / 100n;
+      const net2    = amounts.bidder2 - fee2;
+
+      const b1After      = await getBalance(token, bidder1);
+      const b2After      = await getBalance(token, bidder2);
+      const b3After      = await getBalance(token, bidder3);
+      const sellerAfter  = await getBalance(token, seller);
+
+      // bidder1 净损失 = 2% 手续费
+      expect(b1Before - b1After).to.equal(fee1);
+      // bidder2 净损失 = 全部出价（98% 给卖家 + 2% 手续费）
+      expect(b2Before - b2After).to.equal(amounts.bidder2);
+      // bidder3 净损失 = 2% 手续费
+      expect(b3Before - b3After).to.equal(fee3);
+      // 卖家收到 bidder2 的 98%
+      expect(sellerAfter - sellerBefore).to.equal(net2);
     });
 
   });
